@@ -129,7 +129,7 @@ Resources:
       AvailabilityZone: !Select
         - 2
         - Fn::GetAZs: !Ref 'AWS::Region'
-      CidrBlock: !Ref PrivateSubnet3CIDR
+      CidrBlock: !Ref PrivateSubnet3CIDRs
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
