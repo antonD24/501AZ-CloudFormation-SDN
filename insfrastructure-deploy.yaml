@@ -133,7 +133,7 @@ Resources:
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName} Private Subnet (AZ3)
+          Value: !Sub ${EnvironmentName} Private Subnet (AZ3)-abc
 
   PrivateSubnet4:
     Type: AWS::EC2::Subnet
