@@ -1,9 +1,30 @@
 AWSTemplateFormatVersion: 2010-09-09
+Description: Parent Template that contains the web server deployments alongside the nested stacks
 
 Parameters:
 
   EnvironmentName:
     Type: String
+
+  BucketTemplate:
+    Type: String
+    Default: https://cfn-scripts-501az.s3.amazonaws.com/Scripts/nested_SDN_DIST.yaml
+    Description: Link to another stack stored in S3
+  
+  BucketName:
+    Type: String
+    Default: s3-501az-video-files-store
+
+  
+
+  AMIid:
+    Type: String
+
+  InstanceType:
+    Description: Compute instance type
+    Type: String
+    Default: t2.small
+    AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
 
   VpcCIDR:
     Type: String
@@ -37,16 +58,15 @@ Parameters:
     Type: String
     Default: 172.16.6.0/24
 
-  AMIid:
-    Type: String
-
-  InstanceType:
-    Description: Compute instance type
-    Type: String
-    Default: t2.micro
-    AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
-
 Resources:
+
+  SDNStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Ref BucketTemplate
+      Parameters:
+        BucketName: !Ref BucketName
+
   prodVPC: 
     Type: AWS::EC2::VPC
     Properties:
