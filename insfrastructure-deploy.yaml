@@ -11,33 +11,33 @@ Parameters:
   
   PublicSubnet1CIDR:
     Type: String
-    Default: 172.16.1.0/24
+    Default: 172.16.0.0/24
 
   PublicSubnet2CIDR:
     Type: String
-    Default: 172.16.2.0/24
+    Default: 172.16.1.0/24
   
   PrivateSubnet1CIDR:
     Type: String
-    Default: 172.16.3.0/24
+    Default: 172.16.2.0/24
 
   PrivateSubnet2CIDR:
     Type: String
-    Default: 172.16.4.0/24
+    Default: 172.16.3.0/24
   
   PrivateSubnet3CIDR:
     Type: String
-    Default: 172.16.5.0/24
+    Default: 172.16.4.0/24
 
   PrivateSubnet4CIDR:
     Type: String
-    Default: 172.16.6.0/24
+    Default: 172.16.5.0/24
 
   PrivateSubnet5CIDR:
     Type: String
-    Default: 172.16.7.0/24
+    Default: 172.16.6.0/24
 
-  EFSParameterName:
+  AMIid:
     Type: String
 
   InstanceType:
@@ -171,18 +171,6 @@ Resources:
       - !Ref PrivateSubnet4
       - !Ref PrivateSubnet5
 
-  NatGateway1EIP:
-    Type: AWS::EC2::EIP
-    DependsOn: InternetGatewayAttachment
-    Properties:
-      Domain: vpc
-
-  NatGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatGateway1EIP.AllocationId
-      SubnetId: !Ref PublicSubnet1
-
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -219,13 +207,6 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName} Private Routes (AZ1)
 
-  DefaultPrivateRoute:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway
-
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -260,31 +241,48 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     DependsOn: prodVPC
     Properties:
-      GroupName: !Sub ${EnvironmentName}-SecurityGroup
+      GroupName: !Sub ${EnvironmentName}-HTTP-WEB-SG
       GroupDescription: "Security group with HTTP ingress rule"
       VpcId: !Ref prodVPC
+      SecurityGroupIngress:
 
-  HTTPIngressSecurityGroupRule1:
-    Type: AWS::EC2::SecurityGroupIngress
-    DependsOn: HTTPIngressSecurityGroup
-    Properties:
-      CidrIp: 0.0.0.0/0
-      Description: "Allow HTTP"
-      GroupId: !Ref HTTPIngressSecurityGroup
-      IpProtocol: tcp
-      FromPort: 80
-      ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          Description: "Allow HTTP for web servers"
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
 
-  HTTPIngressSecurityGroupRule2:
-    Type: AWS::EC2::SecurityGroupIngress
-    DependsOn: HTTPIngressSecurityGroup
+        - CidrIp: 0.0.0.0/0
+          Description: "Allow HTTPS"
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      CidrIp: 0.0.0.0/0
-      Description: "Allow HTTPS"
-      GroupId: !Ref HTTPIngressSecurityGroup
-      IpProtocol: tcp
-      FromPort: 443
-      ToPort: 443
+      GroupName: !Sub ${EnvironmentName}-EFS-WEB-SG
+      GroupDescription: Instance to EFS Mount Access
+      VpcId: !Ref prodVPC
+      SecurityGroupIngress:
+        - CidrIp: 172.16.2.0/24
+          Description: "Allow EFS traffic for AZ1"
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+
+        - CidrIp: 172.16.3.0/24
+          Description: "Allow EFS traffic for AZ1"
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+
+        - CidrIp: 172.16.4.0/24
+          Description: "Allow EFS traffic for AZ1"
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          
 
   DBIngressSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -293,78 +291,103 @@ Resources:
       GroupName: !Sub ${EnvironmentName}-Db-SG
       GroupDescription: "Security Group for DB ingress rule"
       VpcId: !Ref prodVPC
+      SecurityGroupIngress:
 
-  DBIngressSecurityGroupRule1:
-    Type: AWS::EC2::SecurityGroupIngress
-    DependsOn: DBIngressSecurityGroup
-    Properties:
-      CidrIp: 172.16.3.0/24
-      Description: "Allow MySQL port 3306 for AZ1"
-      GroupId: !Ref DBIngressSecurityGroup
-      IpProtocol: tcp
-      FromPort: 3306
-      ToPort: 3306
+        - CidrIp: 172.16.2.0/24
+          Description: "Allow MySQL port 3306 for AZ1"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
   
-  DBIngressSecurityGroupRule2:
-    Type: AWS::EC2::SecurityGroupIngress
-    DependsOn: DBIngressSecurityGroup
-    Properties:
-      CidrIp: 172.16.4.0/24
-      Description: "Allow MySQL port 3306 for AZ2"
-      GroupId: !Ref DBIngressSecurityGroup
-      IpProtocol: tcp
-      FromPort: 3306
-      ToPort: 3306
+        - CidrIp: 172.16.3.0/24
+          Description: "Allow MySQL port 3306 for AZ2"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
 
-  DBIngressSecurityGroupRule3:
-    Type: AWS::EC2::SecurityGroupIngress
-    DependsOn: DBIngressSecurityGroup
-    Properties:
-      CidrIp: 172.16.5.0/24
-      Description: "Allow MySQL port 3306 for AZ3"
-      GroupId: !Ref DBIngressSecurityGroup
-      IpProtocol: tcp
-      FromPort: 3306
-      ToPort: 3306
+ 
+        - CidrIp: 172.16.4.0/24
+          Description: "Allow MySQL port 3306 for AZ3"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
 
   MyEFSFileSystem:
     Type: AWS::EFS::FileSystem
+    DependsOn: 
+    - prodVPC
     Properties:
       FileSystemTags:
         - Key: Name
           Value: MyEFS
 
-  MySSMParameter:
-    Type: AWS::SSM::Parameter
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    DependsOn:
+    - MyEFSFileSystem
+    - EfsSecurityGroup
     Properties:
-      Type: String
-      Description: Parameter storing the ID of MyEFSFileSystem
-      Name: !Sub ${EFSParameterName}
-      Value: !GetAtt MyEFSFileSystem.FileSystemId
-
+      FileSystemId: !Ref MyEFSFileSystem
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroups:
+      - !Ref EfsSecurityGroup
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    DependsOn:
+    - MyEFSFileSystem
+    - EfsSecurityGroup
+    Properties:
+      FileSystemId: !Ref MyEFSFileSystem
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroups:
+      - !Ref EfsSecurityGroup
+  MountTarget3:
+    Type: AWS::EFS::MountTarget
+    DependsOn:
+    - MyEFSFileSystem
+    - EfsSecurityGroup
+    Properties:
+      FileSystemId: !Ref MyEFSFileSystem
+      SubnetId: !Ref PrivateSubnet3
+      SecurityGroups:
+      - !Ref EfsSecurityGroup
+  
   myWebServProd:
     Type: AWS::EC2::LaunchTemplate
     DependsOn: 
     - HTTPIngressSecurityGroup
     - DBIngressSecurityGroup
     - MyEFSFileSystem
+    - MountTarget1
+    - MountTarget2
+    - MountTarget3
     Properties:
       LaunchTemplateName: !Sub ${EnvironmentName}-myWebServProd
       LaunchTemplateData:
-        ImageId: ami-02473cbbc15e11a1a
+        ImageId: !Sub ${AMIid}
         InstanceType: !Ref InstanceType
+        KeyName: vockey
+        IamInstanceProfile: 
+          Arn: arn:aws:iam::061026571981:instance-profile/LabInstanceProfile
+        MetadataOptions:
+          HttpTokens: optional
         NetworkInterfaces:
          - DeviceIndex: 0
            AssociatePublicIpAddress: false
            Groups:
             - !Ref HTTPIngressSecurityGroup
+            - !Ref EfsSecurityGroup
+            - !Ref DBIngressSecurityGroup
         UserData: 
           Fn::Base64: 
             !Sub |
-            #!/bin/bash -xe
-            sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport \
-            $(aws ssm get-parameter --name "${EFSParameterName}" --region ${AWS::Region} --query "Parameter.Value" --output text).efs.${AWS::Region}.amazonaws.com:/ /var/www/html
+              #!/bin/bash -xe
 
+              mkdir -p "/var/www/html"
+
+              echo "${MyEFSFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /var/www/html nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport,_netdev 0 0" >> /etc/fstab
+
+              mount -a
         
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -428,6 +451,7 @@ Resources:
        - !Ref PrivateSubnet3
 
 Outputs:
+
   prodVPC:
     Description: A reference to the created VPC
     Value: !Ref prodVPC
@@ -456,6 +480,7 @@ Outputs:
     Description: A reference to the Security Group allowing HTTP only inbound
     Value: !Ref HTTPIngressSecurityGroup
 
+  
   myWebServProd:
     Description: A reference to the Launch Template
     Value: !Ref myWebServProd
@@ -471,3 +496,7 @@ Outputs:
   LoadBalancerURL:
     Description: The URL of the Application Load Balancer
     Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  
+
+  
