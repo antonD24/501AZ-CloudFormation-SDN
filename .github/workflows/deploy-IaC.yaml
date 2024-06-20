@@ -9,7 +9,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      ENV_NAME: MyWebDeploy-${{ github.run_id }}
+      ENV_NAME: MyWebDeploy
     steps:
     - name: Checkout
       uses: actions/checkout@v2
