@@ -4,6 +4,7 @@ Parameters:
 
   EnvironmentName:
     Type: String
+    Default: TestDeploy
 
   VpcCIDR:
     Type: String
