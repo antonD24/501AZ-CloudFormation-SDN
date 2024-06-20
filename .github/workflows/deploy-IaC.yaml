@@ -28,5 +28,6 @@ jobs:
         name: Test-Pipeline-IaC
         template: Test-Web-Deploy.yaml 
         no-fail-on-empty-changeset: "1"
-        parameter-overrides: "EC2InstanceType=t2.large"
-        parameter-overrides: EnvironmentName=${{ env.ENV_NAME }}
+        parameter-overrides: \
+          "EC2InstanceType=t2.large"
+          EnvironmentName=${{ env.ENV_NAME }}
