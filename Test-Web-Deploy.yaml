@@ -30,6 +30,10 @@ Parameters:
     Type: String
     Default: 172.16.5.0/24
 
+  InstanceType:
+    Type: String
+    Default: t2.micro
+
 Resources:
   VPC: 
     Type: AWS::EC2::VPC
@@ -219,7 +223,7 @@ Resources:
       LaunchTemplateName: !Sub ${EnvironmentName}-LaunchTemplate
       LaunchTemplateData:
         ImageId: ami-0b0dcb5067f052a63
-        InstanceType: t2.micro
+        InstanceType: !Ref InstanceType
         NetworkInterfaces:
          - DeviceIndex: 0
            AssociatePublicIpAddress: false
