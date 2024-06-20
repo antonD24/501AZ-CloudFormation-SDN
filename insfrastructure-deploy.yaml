@@ -9,18 +9,40 @@ Parameters:
   BucketTemplate:
     Type: String
     Default: https://cfn-scripts-501az.s3.amazonaws.com/Scripts/nested_SDN_DIST.yaml
-    Description: Link to another stack stored in S3
+    Description: Link to SDN stack stored in S3
   
   BucketName:
     Type: String
     Default: s3-501az-video-files-store
 
-  
+  DevVpcTemplate:
+    Type: String
+    Default: https://cfn-scripts-501az.s3.amazonaws.com/Scripts/nested_DevVPC_Peering.yaml
+    Description: Link to DEV VPC stack in S3
+
+  devCIDR:
+    Type: String
+    Default: 172.17.0.0/24
+
+  PublicDevCIDR:
+    Type: String
+    Default: 172.17.0.0/27
+
+  PrivateDevCIDR:
+    Type: String
+    Default: 172.17.0.32/27
 
   AMIid:
     Type: String
+    Default: ami-009490b5e4d47f143
 
   InstanceType:
+    Description: Compute instance type
+    Type: String
+    Default: t2.small
+    AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
+
+  DevInstanceType:
     Description: Compute instance type
     Type: String
     Default: t2.small
@@ -75,7 +97,7 @@ Resources:
       EnableDnsHostnames: true
       Tags:
       - Key: Name
-        Value: !Ref EnvironmentName
+        Value: !Sub ${EnvironmentName}-Prod
   
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -219,7 +241,7 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet2
 
-  PrivateRouteTable:
+  ProdPrivateRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref prodVPC
@@ -230,39 +252,41 @@ Resources:
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref ProdPrivateRouteTable
       SubnetId: !Ref PrivateSubnet1
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref ProdPrivateRouteTable
       SubnetId: !Ref PrivateSubnet2
 
   PrivateSubnet3RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref ProdPrivateRouteTable
       SubnetId: !Ref PrivateSubnet3
 
   PrivateSubnet4RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref ProdPrivateRouteTable
       SubnetId: !Ref PrivateSubnet4
 
   PrivateSubnet5RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref ProdPrivateRouteTable
       SubnetId: !Ref PrivateSubnet5
 
   HTTPIngressSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    DependsOn: prodVPC
     Properties:
       GroupName: !Sub ${EnvironmentName}-HTTP-WEB-SG
       GroupDescription: "Security group with HTTP ingress rule"
+      Tags:
+        - Key: Name
+          Value: !Sub PROD-${EnvironmentName}-HTTP-SG
       VpcId: !Ref prodVPC
       SecurityGroupIngress:
 
@@ -283,6 +307,9 @@ Resources:
     Properties:
       GroupName: !Sub ${EnvironmentName}-EFS-WEB-SG
       GroupDescription: Instance to EFS Mount Access
+      Tags:
+        - Key: Name
+          Value: !Sub PROD-${EnvironmentName}-EFS-SG
       VpcId: !Ref prodVPC
       SecurityGroupIngress:
         - CidrIp: 172.16.2.0/24
@@ -292,13 +319,13 @@ Resources:
           ToPort: 2049
 
         - CidrIp: 172.16.3.0/24
-          Description: "Allow EFS traffic for AZ1"
+          Description: "Allow EFS traffic for AZ2"
           IpProtocol: tcp
           FromPort: 2049
           ToPort: 2049
 
         - CidrIp: 172.16.4.0/24
-          Description: "Allow EFS traffic for AZ1"
+          Description: "Allow EFS traffic for AZ3"
           IpProtocol: tcp
           FromPort: 2049
           ToPort: 2049
@@ -306,10 +333,35 @@ Resources:
 
   DBIngressSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    DependsOn: prodVPC
     Properties:
       GroupName: !Sub ${EnvironmentName}-Db-SG
-      GroupDescription: "Security Group for DB ingress rule"
+      GroupDescription: "Security Group for DB ingress from RDS"
+      Tags:
+        - Key: Name
+          Value: !Sub PROD-${EnvironmentName}-RDS-TO-WEB
+      VpcId: !Ref prodVPC
+      SecurityGroupIngress:
+
+        - CidrIp: 172.16.5.0/24
+          Description: "Allow MySQL port 3306 for AZ1"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+  
+        - CidrIp: 172.16.6.0/24
+          Description: "Allow MySQL port 3306 for AZ2"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+
+  DBEgressSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${EnvironmentName}-Egress-Db-SG
+      GroupDescription: "Security Group for DB egress to Web Servers"
+      Tags:
+        - Key: Name
+          Value: !Sub PROD-${EnvironmentName}-WEB-TO-RDS
       VpcId: !Ref prodVPC
       SecurityGroupIngress:
 
@@ -328,6 +380,12 @@ Resources:
  
         - CidrIp: 172.16.4.0/24
           Description: "Allow MySQL port 3306 for AZ3"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+
+        - CidrIp: 172.17.0.32/27
+          Description: "Allow MySQL port 3306 for DEV Instance"
           IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
@@ -371,6 +429,28 @@ Resources:
       SubnetId: !Ref PrivateSubnet3
       SecurityGroups:
       - !Ref EfsSecurityGroup
+
+  DevStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - MyEFSFileSystem
+    - MountTarget1
+    - MountTarget2
+    - MountTarget3
+    - prodVPC
+    Properties:
+      TemplateURL: !Ref DevVpcTemplate
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        devCIDR: !Ref devCIDR
+        PublicDevCIDR: !Ref PublicDevCIDR
+        PrivateDevCIDR: !Ref PrivateDevCIDR
+        AMIid: !Ref AMIid
+        DevInstanceType: !Ref DevInstanceType
+        myEFSID: !ImportValue MyEFSFileSystem
+        myprodVPC: !ImportValue prodVPC
+        myProdPrivateRouteTable: !ImportValue ProdPrivateRouteTable
+    
   
   myWebServProd:
     Type: AWS::EC2::LaunchTemplate
@@ -384,7 +464,7 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub ${EnvironmentName}-myWebServProd
       LaunchTemplateData:
-        ImageId: !Sub ${AMIid}
+        ImageId: !Ref  AMIid
         InstanceType: !Ref InstanceType
         KeyName: vockey
         IamInstanceProfile: 
@@ -472,9 +552,17 @@ Resources:
 
 Outputs:
 
-  prodVPC:
+  myprodVPC:
     Description: A reference to the created VPC
     Value: !Ref prodVPC
+    Export:
+      Name: prodVPC
+
+  myProdPrivateRouteTable:
+    Description: A reference to the created private table
+    Value: !Ref ProdPrivateRouteTable
+    Export:
+      Name: ProdPrivateRouteTable
 
   PrivateSubnet1:
     Description: A reference to the private subnet in the 1st Availability Zone
@@ -500,6 +588,11 @@ Outputs:
     Description: A reference to the Security Group allowing HTTP only inbound
     Value: !Ref HTTPIngressSecurityGroup
 
+  myEFSID:
+    Description: The EFS ID
+    Value: !Ref MyEFSFileSystem
+    Export:
+      Name: MyEFSFileSystem
   
   myWebServProd:
     Description: A reference to the Launch Template

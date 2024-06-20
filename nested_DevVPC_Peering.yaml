@@ -1,0 +1,352 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: A reusable Dev network deployment with peering connection
+
+Parameters:
+  
+  EnvironmentName:
+    Type: String
+
+  devCIDR:
+    Type: String
+    Default: 172.17.0.0/24
+
+  PublicDevCIDR:
+    Type: String
+    Default: 172.17.0.0/27
+
+  PrivateDevCIDR:
+    Type: String
+    Default: 172.17.0.32/27
+
+  myEFSID:
+    Type: String
+    Description: EFS ID
+
+  myprodVPC:
+    Type: String
+    Description: Production VPC ID
+
+  myProdPrivateRouteTable:
+    Type: String
+    Description: Production VPC Private Route Table ID ID
+
+  AMIid:
+    Type: String
+
+  DevInstanceType:
+    Description: Compute instance type
+    Type: String
+    Default: t2.small
+    AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
+
+Resources:
+
+  devVPC: 
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref devCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentName}-DEV
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Ref EnvironmentName
+      
+  
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref devVPC
+      
+  
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref devVPC
+      AvailabilityZone:  !Select
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      CidrBlock: !Ref PublicDevCIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-DEV Public Subnet (AZ1)
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref devVPC
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      CidrBlock: !Ref PrivateDevCIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-DEV Private Subnet (AZ1)
+
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-DEV NAT EIP
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-DEV NAT-AZ1
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref devVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-DEV Public RTB
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+  
+  DevPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref devVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-DEV Private Routes (AZ1)
+
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref DevPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DevPrivateRouteTable
+      SubnetId: !Ref PrivateSubnet
+
+  ## VPC Peering Connection  
+
+  VpcPeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref devVPC
+      PeerVpcId: !Ref myprodVPC
+      
+  RouteProd:
+    Type: AWS::EC2::Route
+    DependsOn: VpcPeeringConnection
+    Properties:
+      RouteTableId: !Ref DevPrivateRouteTable
+      DestinationCidrBlock: 172.16.0.0/16     #This is the Production cidr range 
+      VpcPeeringConnectionId: !Ref VpcPeeringConnection
+
+  RouteDev:
+    Type: AWS::EC2::Route
+    DependsOn: VpcPeeringConnection
+    Properties:
+      RouteTableId: !Ref myProdPrivateRouteTable
+      DestinationCidrBlock: 172.17.0.0/24    #This is the Dev cidr range 
+      VpcPeeringConnectionId: !Ref VpcPeeringConnection
+
+  HTTPIngressSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub DEV-${EnvironmentName}-DEV--HTTP-WEB-SG
+      GroupDescription: "Security group with HTTP ingress rule"
+      VpcId: !Ref devVPC
+      SecurityGroupIngress:
+
+        - CidrIp: 172.17.0.0/27
+          Description: "Allow HTTP for web servers"
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+
+        - CidrIp: 172.17.0.0/27
+          Description: "Allow HTTPS"
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub DEV-${EnvironmentName}-EFS-ACCESS
+      GroupDescription: Instance to EFS Mount Access
+      VpcId: !Ref devVPC
+      SecurityGroupIngress:
+        - CidrIp: 172.16.2.0/24
+          Description: "Allow EFS traffic for AZ1"
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+
+        - CidrIp: 172.16.3.0/24
+          Description: "Allow EFS traffic for AZ2"
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+
+        - CidrIp: 172.16.4.0/24
+          Description: "Allow EFS traffic for AZ3"
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+
+  DBIngressSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${EnvironmentName}-DEV-DSG
+      GroupDescription: "Security Group for DB ingress from RDS"
+      Tags:
+        - Key: Name
+          Value: !Sub DEV-${EnvironmentName}-DEV-RDS-TO-DEV
+      VpcId: !Ref devVPC
+      SecurityGroupIngress:
+
+        - CidrIp: 172.16.5.0/24
+          Description: "Allow MySQL port 3306 for AZ1"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+  
+        - CidrIp: 172.16.6.0/24
+          Description: "Allow MySQL port 3306 for AZ2"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+
+  SSHSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub DEV-${EnvironmentName}-SSH-SG
+      GroupDescription: "SSH Access"
+      Tags:
+        - Key: Name
+          Value: !Sub DEV-${EnvironmentName}-SSH
+      VpcId: !Ref devVPC
+      SecurityGroupIngress:
+
+        - CidrIp: 172.17.0.0/27
+          Description: "Allow SSH port 22"
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+
+        - CidrIp: 172.17.0.32/27
+          Description: "Allow SSH port 22"
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+
+  RDPSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub DEV-${EnvironmentName}-DEV--RDP-SG
+      GroupDescription: "RDP Access"
+      Tags:
+        - Key: Name
+          Value: !Sub DEV-${EnvironmentName}-DEV--RDP
+      VpcId: !Ref devVPC
+      SecurityGroupIngress:
+
+        - CidrIp: 0.0.0.0/0
+          Description: "Allow RDP port 3389"
+          IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+
+  WinDev:
+    Type: AWS::EC2::Instance
+    DependsOn:
+    - RDPSecurityGroup
+    - SSHSecurityGroup
+    Properties:
+      ImageId: ami-04df9ee4d3dfde202
+      InstanceType: !Ref DevInstanceType
+      KeyName: vockey
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref RDPSecurityGroup
+            - !Ref SSHSecurityGroup
+
+  DevVMTemp:
+    Type: AWS::EC2::LaunchTemplate
+    DependsOn: 
+    - SSHSecurityGroup
+    - EfsSecurityGroup
+    - DBIngressSecurityGroup
+    - HTTPIngressSecurityGroup
+    Properties:
+      LaunchTemplateName: !Sub ${EnvironmentName}-Dev-VM
+      LaunchTemplateData:
+        ImageId: !Ref  AMIid
+        InstanceType: !Ref DevInstanceType
+        KeyName: vockey
+        IamInstanceProfile: 
+          Arn: arn:aws:iam::061026571981:instance-profile/LabInstanceProfile
+        MetadataOptions:
+          HttpTokens: optional
+        UserData: 
+          Fn::Base64: 
+            !Sub |
+              #!/bin/bash -xe
+
+              mkdir -p "/var/www/html"
+
+              echo "${myEFSID}.efs.${AWS::Region}.amazonaws.com:/ /var/www/html nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport,_netdev 0 0" >> /etc/fstab
+
+              mount -a
+  
+  UbuntuDev:
+    Type: AWS::EC2::Instance
+    DependsOn:
+    - DevVMTemp
+    Properties:
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: false
+          SubnetId: !Ref PrivateSubnet
+          GroupSet:
+            - !Ref SSHSecurityGroup
+            - !Ref EfsSecurityGroup
+            - !Ref DBIngressSecurityGroup
+            - !Ref HTTPIngressSecurityGroup
+      LaunchTemplate: 
+        LaunchTemplateId: !Ref DevVMTemp
+        Version: !GetAtt DevVMTemp.LatestVersionNumber
+      
+      
