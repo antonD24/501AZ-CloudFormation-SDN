@@ -218,7 +218,7 @@ Resources:
       LaunchTemplateName: !Sub ${EnvironmentName}-LaunchTemplate
       LaunchTemplateData:
         ImageId: ami-0b0dcb5067f052a63
-        InstanceType: t2.medium
+        InstanceType: t2.micro
         NetworkInterfaces:
          - DeviceIndex: 0
            AssociatePublicIpAddress: false
