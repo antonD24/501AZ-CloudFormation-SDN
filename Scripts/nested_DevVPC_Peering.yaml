@@ -269,40 +269,6 @@ Resources:
           FromPort: 22
           ToPort: 22
 
-  RDPSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: !Sub DEV-${EnvironmentName}-DEV--RDP-SG
-      GroupDescription: "RDP Access"
-      Tags:
-        - Key: Name
-          Value: !Sub DEV-${EnvironmentName}-DEV--RDP
-      VpcId: !Ref devVPC
-      SecurityGroupIngress:
-
-        - CidrIp: 0.0.0.0/0
-          Description: "Allow RDP port 3389"
-          IpProtocol: tcp
-          FromPort: 3389
-          ToPort: 3389
-
-  WinDev:
-    Type: AWS::EC2::Instance
-    DependsOn:
-    - RDPSecurityGroup
-    - SSHSecurityGroup
-    Properties:
-      ImageId: ami-04df9ee4d3dfde202
-      InstanceType: !Ref DevInstanceType
-      KeyName: vockey
-      NetworkInterfaces:
-        - DeviceIndex: 0
-          AssociatePublicIpAddress: true
-          SubnetId: !Ref PublicSubnet
-          GroupSet:
-            - !Ref RDPSecurityGroup
-            - !Ref SSHSecurityGroup
-
   DevVMTemp:
     Type: AWS::EC2::LaunchTemplate
     DependsOn: 
@@ -349,4 +315,19 @@ Resources:
         LaunchTemplateId: !Ref DevVMTemp
         Version: !GetAtt DevVMTemp.LatestVersionNumber
       
+  UbuntuPub:
+    Type: AWS::EC2::Instance
+    DependsOn:
+    - DevVMTemp
+    Properties:
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: false
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref SSHSecurityGroup
+      LaunchTemplate: 
+        LaunchTemplateId: !Ref DevVMTemp
+        Version: !GetAtt DevVMTemp.LatestVersionNumber
       
+

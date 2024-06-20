@@ -8,7 +8,7 @@ Parameters:
 
   BucketTemplate:
     Type: String
-    Default: https://cfn-scripts-501az.s3.amazonaws.com/Scripts/nested_SDN_DIST.yaml
+    Default: https://scripts-demo-iac.s3.eu-west-2.amazonaws.com/Scripts/nested_SDN_DIST.yaml
     Description: Link to SDN stack stored in S3
   
   BucketName:
@@ -17,7 +17,7 @@ Parameters:
 
   DevVpcTemplate:
     Type: String
-    Default: https://cfn-scripts-501az.s3.amazonaws.com/Scripts/nested_DevVPC_Peering.yaml
+    Default: https://scripts-demo-iac.s3.eu-west-2.amazonaws.com/Scripts/nested_DevVPC_Peering.yaml
     Description: Link to DEV VPC stack in S3
 
   devCIDR:
@@ -79,6 +79,16 @@ Parameters:
   PrivateSubnet5CIDR:
     Type: String
     Default: 172.16.6.0/24
+  
+  MasterUsername:
+    Type: String
+    Description: DB Username
+
+  MasterUserPassword:
+    Type: String
+
+  dbname:
+    Type: String
 
 Resources:
 
@@ -330,6 +340,11 @@ Resources:
           FromPort: 2049
           ToPort: 2049
           
+        - CidrIp: 172.17.0.32/27
+          Description: "Allow EFS traffic for DEV"
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
 
   DBIngressSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -430,14 +445,102 @@ Resources:
       SecurityGroups:
       - !Ref EfsSecurityGroup
 
+  ## Database with read Replica
+  
+  RDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${EnvironmentName}-database
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: "MYSQL"
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+      BackupRetentionPeriod: 7
+      MultiAZ: false
+      EngineVersion: 8.0.35
+      AutoMinorVersionUpgrade: false
+      PubliclyAccessible: false
+      StorageType: gp2
+      Port: 3306
+      StorageEncrypted: true
+      CopyTagsToSnapshot: true
+      EnableIAMDatabaseAuthentication: false
+      EnablePerformanceInsights: false
+      DeletionProtection: false
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups: 
+      - !Ref DBEgressSecurityGroup
+      MaxAllocatedStorage: 50
+      Tags: 
+
+        - Key: Name
+          Value: database-1
+
+  MURLssm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Parameter storing the RDS instance Endpoint
+      Name: /dev/dbMasterUrl
+      Value: !GetAtt [RDS, Endpoint.Address]
+
+  dbName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Parameter storing the RDS instance identifier
+      Name: /dev/dbName
+      Value: !Ref dbname
+
+  dbUser:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Parameter storing the RDS instance Username
+      Name: /dev/dbUser
+      Value: !Ref MasterUsername
+
+  dbPassword:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Parameter storing the RDS instance Password
+      Name: /dev/dbPassword
+      Value: !Ref MasterUserPassword
+
+  RDSreplica:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      DBInstanceIdentifier: !Sub ${EnvironmentName}-db-replica
+      SourceDBInstanceIdentifier: !Ref RDS
+      DBInstanceClass: "db.t3.micro"
+      Engine: "MYSQL"
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - !Ref DBEgressSecurityGroup
+      
+
+  RRURLssm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Parameter storing the RDS instance Endpoint
+      Name: /dev/dbRRUrl
+      Value: !GetAtt [RDSreplica, Endpoint.Address]
+
+    
+
+  ## Developer Envrionment VPC
+
   DevStack:
     Type: AWS::CloudFormation::Stack
     DependsOn:
+    - prodVPC
     - MyEFSFileSystem
     - MountTarget1
     - MountTarget2
     - MountTarget3
-    - prodVPC
     Properties:
       TemplateURL: !Ref DevVpcTemplate
       Parameters:
@@ -447,9 +550,9 @@ Resources:
         PrivateDevCIDR: !Ref PrivateDevCIDR
         AMIid: !Ref AMIid
         DevInstanceType: !Ref DevInstanceType
-        myEFSID: !ImportValue MyEFSFileSystem
-        myprodVPC: !ImportValue prodVPC
-        myProdPrivateRouteTable: !ImportValue ProdPrivateRouteTable
+        myEFSID: !Ref MyEFSFileSystem
+        myprodVPC: !Ref prodVPC
+        myProdPrivateRouteTable: !Ref ProdPrivateRouteTable
     
   
   myWebServProd:
@@ -511,11 +614,9 @@ Resources:
     Properties: 
       Name: !Sub ${EnvironmentName}-TargetGroup
       HealthCheckIntervalSeconds: 30
-      HealthCheckPath: /
+      HealthCheckTimeoutSeconds: 5
       Port: 80
       Protocol: HTTP
-      HealthyThresholdCount: 5
-      UnhealthyThresholdCount: 2
       TargetType: instance
       Matcher: 
         HttpCode: "200"
@@ -537,7 +638,7 @@ Resources:
     DependsOn: myWebServProd
     Properties:
       AutoScalingGroupName: !Sub ${EnvironmentName}-AutoScaleGroup
-      DesiredCapacity: 2
+      DesiredCapacity: 3
       MinSize: 2
       MaxSize: 3
       LaunchTemplate: 
@@ -573,6 +674,14 @@ Outputs:
     Value: !Ref PrivateSubnet2
 
   PrivateSubnet3:
+    Description: A reference to the private subnet in the 3rd Availability Zone
+    Value: !Ref PrivateSubnet3
+
+  PrivateSubnet4:
+    Description: A reference to the private subnet in the 3rd Availability Zone
+    Value: !Ref PrivateSubnet3
+
+  PrivateSubnet5:
     Description: A reference to the private subnet in the 3rd Availability Zone
     Value: !Ref PrivateSubnet3
 
