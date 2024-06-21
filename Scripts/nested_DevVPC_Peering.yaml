@@ -257,6 +257,12 @@ Resources:
       VpcId: !Ref devVPC
       SecurityGroupIngress:
 
+        - CidrIp: 0.0.0.0/0
+          Description: "Allow SSH port 22"
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+        
         - CidrIp: 172.17.0.0/27
           Description: "Allow SSH port 22"
           IpProtocol: tcp
