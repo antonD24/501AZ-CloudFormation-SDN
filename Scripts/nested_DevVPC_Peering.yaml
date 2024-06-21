@@ -186,13 +186,13 @@ Resources:
       VpcId: !Ref devVPC
       SecurityGroupIngress:
 
-        - CidrIp: 172.17.0.0/27
+        - CidrIp: 0.0.0.0/0
           Description: "Allow HTTP for web servers"
           IpProtocol: tcp
           FromPort: 80
           ToPort: 80
 
-        - CidrIp: 172.17.0.0/27
+        - CidrIp: 0.0.0.0/0
           Description: "Allow HTTPS"
           IpProtocol: tcp
           FromPort: 443
@@ -269,6 +269,24 @@ Resources:
           FromPort: 22
           ToPort: 22
 
+        - CidrIp: 172.16.2.0/24
+          Description: "Allow SSH port 22"
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+
+        - CidrIp: 172.16.3.0/24
+          Description: "Allow SSH port 22"
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+
+        - CidrIp: 172.17.4.0/24
+          Description: "Allow SSH port 22"
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+
   DevVMTemp:
     Type: AWS::EC2::LaunchTemplate
     DependsOn: 
@@ -322,7 +340,7 @@ Resources:
     Properties:
       NetworkInterfaces:
         - DeviceIndex: 0
-          AssociatePublicIpAddress: false
+          AssociatePublicIpAddress: true
           SubnetId: !Ref PublicSubnet
           GroupSet:
             - !Ref SSHSecurityGroup
