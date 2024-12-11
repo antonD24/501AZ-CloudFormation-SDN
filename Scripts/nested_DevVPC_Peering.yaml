@@ -36,8 +36,14 @@ Parameters:
   DevInstanceType:
     Description: Compute instance type
     Type: String
-    Default: t2.small
+    Default: t2.large
     AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
+
+  OStype:
+    Description: AMI options (ami-0e8d228ad90af673b - Ubuntu, ami-05bfeaa616a095c81 - Windows, ami-0acc77abdfc7ed5a6 - Amazon Linux)
+    Type: String
+    Default: ami-0e8d228ad90af673b
+    AllowedValues: [ami-0e8d228ad90af673b, ami-05bfeaa616a095c81, ami-0acc77abdfc7ed5a6]
 
 Resources:
 
@@ -246,6 +252,29 @@ Resources:
           FromPort: 3306
           ToPort: 3306
 
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub BAST-${EnvironmentName}-SG
+      GroupDescription: "SSH and RDP Access for Bastions"
+      Tags:
+        - Key: Name
+          Value: !Sub BAST-${EnvironmentName}
+      VpcId: !Ref devVPC
+      SecurityGroupIngress:
+
+        - CidrIp: 0.0.0.0/0
+          Description: "Allow SSH port 22"
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+
+        - CidrIp: 0.0.0.0/0
+          Description: "Allow RDP port 3389"
+          IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+
   SSHSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -256,12 +285,6 @@ Resources:
           Value: !Sub DEV-${EnvironmentName}-SSH
       VpcId: !Ref devVPC
       SecurityGroupIngress:
-
-        - CidrIp: 0.0.0.0/0
-          Description: "Allow SSH port 22"
-          IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
         
         - CidrIp: 172.17.0.0/27
           Description: "Allow SSH port 22"
@@ -293,9 +316,121 @@ Resources:
           FromPort: 22
           ToPort: 22
 
+  DevKeyPair:
+    Type: 'AWS::EC2::KeyPair'
+    Properties:
+      KeyName: DevKey
+
+  DevEfsRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: EFS-CRUD
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                - elasticfilesystem:ClientMount
+                - elasticfilesystem:ClientRootAccess
+                - elasticfilesystem:ClientWrite
+                - elasticfilesystem:DescribeMountTargets
+                Resource: "*"
+        - PolicyName: SSM-acces
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - cloudwatch:PutMetricData
+              - ds:CreateComputer
+              - ds:DescribeDirectories
+              - ec2:DescribeInstanceStatus
+              - logs:*
+              - ssm:*
+              - ec2messages:*
+              Resource: "*"
+            - Effect: Allow
+              Action: iam:CreateServiceLinkedRole
+              Resource: arn:aws:iam::*:role/aws-service-role/ssm.amazonaws.com/AWSServiceRoleForAmazonSSM*
+              Condition:
+                StringLike:
+                  iam:AWSServiceName: ssm.amazonaws.com
+            - Effect: Allow
+              Action:
+              - iam:DeleteServiceLinkedRole
+              - iam:GetServiceLinkedRoleDeletionStatus
+              Resource: arn:aws:iam::*:role/aws-service-role/ssm.amazonaws.com/AWSServiceRoleForAmazonSSM*
+            - Effect: Allow
+              Action:
+              - ssmmessages:CreateControlChannel
+              - ssmmessages:CreateDataChannel
+              - ssmmessages:OpenControlChannel
+              - ssmmessages:OpenDataChannel
+              Resource: "*"
+        - PolicyName: RDS-data-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Sid: SecretsManagerDbCredentialsAccess
+              Effect: Allow
+              Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:PutResourcePolicy
+              - secretsmanager:PutSecretValue
+              - secretsmanager:DeleteSecret
+              - secretsmanager:DescribeSecret
+              - secretsmanager:TagResource
+              Resource: arn:aws:secretsmanager:*:*:secret:rds-db-credentials/*
+            - Sid: RDSDataServiceAccess
+              Effect: Allow
+              Action:
+              - dbqms:CreateFavoriteQuery
+              - dbqms:DescribeFavoriteQueries
+              - dbqms:UpdateFavoriteQuery
+              - dbqms:DeleteFavoriteQueries
+              - dbqms:GetQueryString
+              - dbqms:CreateQueryHistory
+              - dbqms:DescribeQueryHistory
+              - dbqms:UpdateQueryHistory
+              - dbqms:DeleteQueryHistory
+              - rds-data:ExecuteSql
+              - rds-data:ExecuteStatement
+              - rds-data:BatchExecuteStatement
+              - rds-data:BeginTransaction
+              - rds-data:CommitTransaction
+              - rds-data:RollbackTransaction
+              - secretsmanager:CreateSecret
+              - secretsmanager:ListSecrets
+              - secretsmanager:GetRandomPassword
+              - tag:GetResources
+              Resource: "*"
+
+          
+
+
+
+  DevInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref DevEfsRole
+
   DevVMTemp:
     Type: AWS::EC2::LaunchTemplate
     DependsOn: 
+    - VpcPeeringConnection
     - SSHSecurityGroup
     - EfsSecurityGroup
     - DBIngressSecurityGroup
@@ -305,9 +440,9 @@ Resources:
       LaunchTemplateData:
         ImageId: !Ref  AMIid
         InstanceType: !Ref DevInstanceType
-        KeyName: vockey
+        KeyName: !Ref DevKeyPair
         IamInstanceProfile: 
-          Arn: arn:aws:iam::061026571981:instance-profile/LabInstanceProfile
+          Arn: !GetAtt DevInstanceProfile.Arn
         MetadataOptions:
           HttpTokens: optional
         UserData: 
@@ -320,6 +455,20 @@ Resources:
               echo "${myEFSID}.efs.${AWS::Region}.amazonaws.com:/ /var/www/html nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport,_netdev 0 0" >> /etc/fstab
 
               mount -a
+
+  BastVMTemp:
+    Type: AWS::EC2::LaunchTemplate
+    DependsOn: 
+    - VpcPeeringConnection
+    - BastionSecurityGroup
+    Properties:
+      LaunchTemplateName: !Sub ${EnvironmentName}-Bast-VM
+      LaunchTemplateData:
+        ImageId: !Ref  OStype
+        InstanceType: !Ref DevInstanceType
+        KeyName: !Ref DevKeyPair
+        MetadataOptions:
+          HttpTokens: optional
   
   UbuntuDev:
     Type: AWS::EC2::Instance
@@ -339,19 +488,19 @@ Resources:
         LaunchTemplateId: !Ref DevVMTemp
         Version: !GetAtt DevVMTemp.LatestVersionNumber
       
-  UbuntuPub:
+  BastionVM:
     Type: AWS::EC2::Instance
     DependsOn:
-    - DevVMTemp
+    - BastionSecurityGroup
     Properties:
       NetworkInterfaces:
         - DeviceIndex: 0
           AssociatePublicIpAddress: true
           SubnetId: !Ref PublicSubnet
           GroupSet:
-            - !Ref SSHSecurityGroup
+            - !Ref BastionSecurityGroup
       LaunchTemplate: 
-        LaunchTemplateId: !Ref DevVMTemp
-        Version: !GetAtt DevVMTemp.LatestVersionNumber
+        LaunchTemplateId: !Ref BastVMTemp
+        Version: !GetAtt BastVMTemp.LatestVersionNumber
       
 

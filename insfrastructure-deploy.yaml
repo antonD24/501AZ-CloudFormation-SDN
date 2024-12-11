@@ -5,10 +5,11 @@ Parameters:
 
   EnvironmentName:
     Type: String
+    Default: 501Insfrastructure
 
   BucketTemplate:
     Type: String
-    Default: https://scripts-demo-iac.s3.eu-west-2.amazonaws.com/Scripts/nested_SDN_DIST.yaml
+    Default: https://project-files-501.s3.eu-west-2.amazonaws.com/Scripts/nested_SDN_DIST.yaml
     Description: Link to SDN stack stored in S3
   
   BucketName:
@@ -17,7 +18,7 @@ Parameters:
 
   DevVpcTemplate:
     Type: String
-    Default: https://scripts-demo-iac.s3.eu-west-2.amazonaws.com/Scripts/nested_DevVPC_Peering.yaml
+    Default: https://project-files-501.s3.eu-west-2.amazonaws.com/Scripts/nested_DevVPC_Peering.yaml
     Description: Link to DEV VPC stack in S3
 
   devCIDR:
@@ -34,19 +35,25 @@ Parameters:
 
   AMIid:
     Type: String
-    Default: ami-009490b5e4d47f143
+    Default: ami-09b225b36edcf014f
 
   InstanceType:
     Description: Compute instance type
     Type: String
-    Default: t2.small
+    Default: t2.medium
     AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
 
   DevInstanceType:
     Description: Compute instance type
     Type: String
-    Default: t2.small
+    Default: t2.large
     AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
+
+  OStype:
+    Description: AMI options (ami-0e8d228ad90af673b - Ubuntu, ami-05bfeaa616a095c81 - Windows, ami-0acc77abdfc7ed5a6 - Amazon Linux)
+    Type: String
+    Default: ami-0e8d228ad90af673b
+    AllowedValues: [ami-0e8d228ad90af673b, ami-05bfeaa616a095c81, ami-0acc77abdfc7ed5a6]
 
   VpcCIDR:
     Type: String
@@ -578,11 +585,100 @@ Resources:
         myEFSID: !Ref MyEFSFileSystem
         myprodVPC: !Ref prodVPC
         myProdPrivateRouteTable: !Ref ProdPrivateRouteTable
+        OStype: !Ref OStype
+    
+
+  WebKeyPair:
+    Type: 'AWS::EC2::KeyPair'
+    Properties:
+      KeyName: WebKey
+
+  
+
+  WebEfsRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: EFS-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                - elasticfilesystem:ClientMount
+                - elasticfilesystem:DescribeMountTargets
+                Resource: "*"
+        - PolicyName: SSM-read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                - ssm:Describe*
+                - ssm:Get*
+                - ssm:List*
+                Resource: "*"
+        - PolicyName: RDS-read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                - rds:Describe*
+                - rds:ListTagsForResource
+                - ec2:DescribeAccountAttributes
+                - ec2:DescribeAvailabilityZones
+                - ec2:DescribeInternetGateways
+                - ec2:DescribeSecurityGroups
+                - ec2:DescribeSubnets
+                - ec2:DescribeVpcAttribute
+                - ec2:DescribeVpcs
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                - cloudwatch:GetMetricStatistics
+                - cloudwatch:ListMetrics
+                - cloudwatch:GetMetricData
+                - logs:DescribeLogStreams
+                - logs:GetLogEvents
+                - devops-guru:GetResourceCollection
+                Resource: "*"
+              - Action:
+                - devops-guru:SearchInsights
+                - devops-guru:ListAnomaliesForInsight
+                Effect: Allow
+                Resource: "*"
+                Condition:
+                  ForAllValues:StringEquals:
+                    devops-guru:ServiceNames:
+                    - RDS
+                  'Null':
+                    devops-guru:ServiceNames: 'false'
+
+
+  WebInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref WebEfsRole
     
   
   myWebServProd:
     Type: AWS::EC2::LaunchTemplate
     DependsOn: 
+    - WebInstanceProfile
+    - WebKeyPair
     - HTTPIngressSecurityGroup
     - DBIngressSecurityGroup
     - MyEFSFileSystem
@@ -594,9 +690,9 @@ Resources:
       LaunchTemplateData:
         ImageId: !Ref  AMIid
         InstanceType: !Ref InstanceType
-        KeyName: vockey
+        KeyName: !Ref WebKeyPair
         IamInstanceProfile: 
-          Arn: arn:aws:iam::061026571981:instance-profile/LabInstanceProfile
+          Arn: !GetAtt  WebInstanceProfile.Arn
         MetadataOptions:
           HttpTokens: optional
         NetworkInterfaces:
