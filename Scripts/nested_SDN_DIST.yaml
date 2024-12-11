@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: A reusable Cloudfront and S3 distribution that can be used to serve content for different applications.
+Parameters:
+
+  BucketName:
+    Type: String
+    Default: 501video-cdn
+
+Resources:
+
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      BucketName: !Ref BucketName
+      Tags:
+        - Key: description
+          Value: "Video Files"
+
+  CloudFrontOriginIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'origin identity'
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BucketName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginIdentity}'
+            Action: 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::${BucketName}/*'
+
+  publicDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !Sub '${BucketName}.s3.${AWS::Region}.amazonaws.com'
+            Id: S3-private-bucket
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginIdentity}'
+        Enabled: 'true'
+        Comment: Some comment
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+          TargetOriginId: S3-private-bucket
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+
+Outputs:
+  S3BucketName:
+    Value: !Ref Bucket
