@@ -43,6 +43,9 @@ Resources:
         Origins:
           - DomainName: !Sub '${BucketName}.s3.${AWS::Region}.amazonaws.com'
             Id: S3-private-bucket
+            OriginShield:
+              Enabled: true
+              OriginShieldRegion: eu-west-2
             S3OriginConfig:
               OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginIdentity}'
         Enabled: 'true'
@@ -57,6 +60,7 @@ Resources:
             Cookies:
               Forward: none
           ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
         ViewerCertificate:
           CloudFrontDefaultCertificate: 'true'
 
