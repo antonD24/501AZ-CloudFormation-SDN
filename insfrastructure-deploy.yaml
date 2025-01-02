@@ -5,7 +5,7 @@ Parameters:
 
   EnvironmentName:
     Type: String
-    Default: 501Insfrastructurecdn
+    Default: 501Insfrastructure
 
   BucketTemplate:
     Type: String
