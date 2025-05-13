@@ -1,2 +1,2 @@
 # 501AZ-CloudFormation-SDN
- IaC deployment of a web streaming PHP application using SDNs
+ IaC deployment of a video streaming PHP application using SDNs
